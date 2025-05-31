@@ -1,15 +1,20 @@
+# Sources: https://github.com/password123456/setup-selenium-with-chrome-driver-on-ubuntu_debian?tab=readme-ov-file#step-2-download-google-chrome-stable-package
 import requests
 import json
+import time
+import datetime
+import keys
+import os
+import pandas as pd
+import time
+
 from seleniumwire import webdriver
-from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-import time
-import keys
-import pandas as pd
-import datetime
-import os
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 
 from config import TIKR_ACCOUNT_USERNAME, TIKR_ACCOUNT_PASSWORD
 
@@ -43,23 +48,46 @@ class TIKR:
             self.ACCESS_TOKEN = ''
 
     def getAccessToken(self):
-        chrome_options = Options()
-        chrome_options.add_argument("--headless")
-        user_agent = 'Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.2 (KHTML, like Gecko) Chrome/22.0.1216.0 Safari/537.2'
-        chrome_options.add_argument(f'user-agent={user_agent}')
-        chrome_options.add_argument('window-size=1920x1080')
-        s = Service(ChromeDriverManager().install())
-        browser = webdriver.Chrome(service=s, options=chrome_options)
+        # Setup Chrome options (headless = no GUI)
+        options = Options()
+        options.add_argument("--headless")  # Remove this line if you want to see the browser
+        options.add_argument('--no-sandbox')
+        options.add_argument("--disable-gpu")
+        options.add_argument('--disable-dev-shm-usage')
+        user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36'
+        options.add_argument(f'user-agent={user_agent}')
+        options.add_argument('window-size=1920x1080')
+        browser = webdriver.Chrome(service=Service(), options=options)
         browser.get('https://app.tikr.com/login')
         browser.find_element(By.XPATH, '//input[@type="email"]').send_keys(self.username)
         browser.find_element(By.XPATH, '//input[@type="password"]').send_keys(self.password)
         browser.find_element(By.XPATH, '//button/span').click()
         while 'Welcome to TIKR' not in browser.page_source:
-            time.sleep(5)
+            time.sleep(5) # Wait for login to complete
+
         browser.get('https://app.tikr.com/screener?sid=1')
-        time.sleep(2)
-        browser.find_element(By.XPATH, '//button/span[contains(text(), "Fetch Screen")]/..').click()
-        time.sleep(5)
+        
+        fetch_screen_button_xpath = '//button/span[contains(text(), "Fetch Screen")]/..'
+        try:
+            # Wait for the button to be present and then scroll to it and click using JavaScript
+            fetch_button = WebDriverWait(browser, 20).until(
+                EC.presence_of_element_located((By.XPATH, fetch_screen_button_xpath))
+            )
+            browser.execute_script("arguments[0].scrollIntoView(true);", fetch_button)
+            time.sleep(0.5) # Brief pause after scroll
+            browser.execute_script("arguments[0].click();", fetch_button)
+            print("[ * ] Clicked 'Fetch Screen' button.")
+            print(browser)
+        except TimeoutException:
+            print(f"[ - ] Error: 'Fetch Screen' button not found or not clickable after waiting. XPath: {fetch_screen_button_xpath}")
+            browser.close()
+            return
+        except Exception as e:
+            print(f"[ - ] Error clicking 'Fetch Screen' button: {e}")
+            browser.close()
+            return
+
+        time.sleep(5) # Wait for network requests to be captured by selenium-wire
         try:
             for request in browser.requests:
                 if 'amazonaws.com/prod/fs' in request.url and request.method == 'POST':
